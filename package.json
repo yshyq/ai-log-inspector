@@ -1,0 +1,22 @@
+{
+  "name": "ai-log-inspector",
+  "version": "0.3.5",
+  "description": "CPU-friendly time-range log inspection and failure prediction assistant.",
+  "type": "module",
+  "bin": {
+    "log-inspect": "./src/cli.js"
+  },
+  "scripts": {
+    "analyze": "node ./src/cli.js analyze",
+    "server": "node ./src/cli.js server",
+    "agent": "node ./src/cli.js agent",
+    "model": "node ./src/cli.js model-server",
+    "demo": "node ./src/cli.js demo",
+    "test": "node ./src/cli.js test",
+    "docker:build": "docker build -t ai-log-inspector:0.3.5 ."
+  },
+  "engines": {
+    "node": ">=18"
+  },
+  "license": "UNLICENSED"
+}

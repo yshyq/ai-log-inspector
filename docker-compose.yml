@@ -1,0 +1,18 @@
+services:
+  log-inspector:
+    build:
+      context: .
+    image: ai-log-inspector:0.3.5
+    volumes:
+      - ./logs:/logs:ro
+      - ./reports:/reports
+    command:
+      - analyze
+      - --dir
+      - /logs
+      - --from
+      - "2026-05-07 10:00:00"
+      - --to
+      - "2026-05-07 10:30:00"
+      - --out
+      - /reports/report.md

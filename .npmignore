@@ -1,0 +1,11 @@
+demo-logs/
+node_modules/
+*.report.md
+*.report.json
+.git/
+.npm-cache/
+.pack-test/
+reports/
+.remote-tools/
+scripts/
+service-data/

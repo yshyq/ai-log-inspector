@@ -1,0 +1,161 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>服务日志检索</title>
+  <style>
+    :root { color-scheme: light; font-family: Arial, "Microsoft YaHei", sans-serif; }
+    body { margin: 0; background: #f6f7f9; color: #17202a; }
+    header { background: #263238; color: white; padding: 16px 24px; }
+    main { padding: 20px 24px; max-width: 1320px; margin: 0 auto; }
+    .dialog { display: grid; grid-template-columns: 1fr auto; gap: 12px; margin-bottom: 14px; }
+    textarea { min-height: 58px; border: 1px solid #cfd8dc; border-radius: 4px; padding: 10px; font-size: 14px; resize: vertical; }
+    .toolbar { display: grid; grid-template-columns: repeat(6, minmax(120px, 1fr)); gap: 12px; align-items: end; }
+    label { display: grid; gap: 6px; font-size: 13px; color: #455a64; }
+    input, select, button { height: 36px; border: 1px solid #cfd8dc; border-radius: 4px; padding: 0 10px; font-size: 14px; background: white; }
+    button { background: #006d77; color: white; border: 0; cursor: pointer; white-space: nowrap; }
+    button.secondary { background: #455a64; }
+    button.download { background: #7b5e00; }
+    section { margin-top: 18px; background: white; border: 1px solid #e0e5e8; border-radius: 6px; padding: 16px; }
+    table { width: 100%; border-collapse: collapse; font-size: 13px; table-layout: fixed; }
+    th, td { padding: 8px; border-bottom: 1px solid #edf1f3; vertical-align: top; word-break: break-word; }
+    th { text-align: left; color: #546e7a; background: #fafafa; }
+    .message { font-family: Consolas, monospace; white-space: pre-wrap; max-height: 168px; overflow: auto; }
+    details[open] .message { max-height: none; }
+    summary { cursor: pointer; color: #006d77; margin-bottom: 6px; }
+    pre { white-space: pre-wrap; background: #f7f9fa; padding: 12px; border-radius: 4px; }
+    .status { margin-top: 12px; color: #546e7a; }
+    @media (max-width: 920px) { .toolbar, .dialog { grid-template-columns: 1fr; } }
+  </style>
+</head>
+<body>
+  <header><h2>服务日志检索与智能分析</h2></header>
+  <main>
+    <div class="dialog">
+      <textarea id="dialogText" placeholder="直接描述筛选条件，例如：查 pay-service 最近30分钟 ERROR timeout，或者：今天 10:00 到 11:00 order-service 的 exception"></textarea>
+      <button id="parseDialog">解析筛选</button>
+    </div>
+    <div class="toolbar">
+      <label>开始时间<input id="from" type="datetime-local"></label>
+      <label>结束时间<input id="to" type="datetime-local"></label>
+      <label>服务名<input id="service" placeholder="pay-service"></label>
+      <label>日志关键词<input id="value" placeholder="timeout / exception"></label>
+      <label>级别<select id="level"><option value="">全部</option><option>ERROR</option><option>FATAL</option><option>WARN</option><option>INFO</option></select></label>
+      <label>条数<input id="limit" type="number" min="1" max="1000" value="200"></label>
+      <button id="search">检索</button>
+      <button id="analyze" class="secondary">智能分析</button>
+      <button id="download" class="download">下载当前范围日志</button>
+    </div>
+    <div id="status" class="status"></div>
+    <section><h3>分析结果</h3><pre id="analysis">等待分析</pre></section>
+    <section><h3>服务日志</h3><table><thead><tr><th style="width:150px">时间</th><th style="width:90px">级别</th><th style="width:150px">服务</th><th>内容</th></tr></thead><tbody id="rows"></tbody></table></section>
+  </main>
+  <script>
+    const $ = (id) => document.getElementById(id);
+    const now = new Date();
+    const before = new Date(now.getTime() - 30 * 60 * 1000);
+    $('from').value = toLocalInput(before);
+    $('to').value = toLocalInput(now);
+
+    $('parseDialog').onclick = parseDialog;
+    $('search').onclick = () => run('/api/search');
+    $('analyze').onclick = () => run('/api/analyze');
+    $('download').onclick = downloadLogs;
+
+    async function run(path) {
+      const res = await fetch(`${path}?${buildQuery()}`);
+      const data = await res.json();
+      if (!res.ok || data.error) {
+        $('status').textContent = data.error || `HTTP ${res.status}`;
+        return;
+      }
+      $('status').textContent = `命中 ${data.count} 条，最大允许范围 ${data.range.maxHours} 小时`;
+      $('analysis').textContent = data.text ? `${data.provider}\n\n${data.text}` : JSON.stringify(data.summary, null, 2);
+      renderRows(data.records || []);
+    }
+
+    function downloadLogs() {
+      window.location.href = `/api/download?${buildQuery({ limit: '' })}`;
+    }
+
+    function buildQuery(extra = {}) {
+      return new URLSearchParams({
+        from: normalizeInputTime($('from').value),
+        to: normalizeInputTime($('to').value),
+        field: 'message',
+        value: $('value').value,
+        service: $('service').value,
+        level: $('level').value,
+        limit: $('limit').value,
+        ...extra
+      });
+    }
+
+    function parseDialog() {
+      const text = $('dialogText').value.trim();
+      if (!text) return;
+      const lower = text.toLowerCase();
+      const now = new Date();
+      const service = text.match(/([A-Za-z0-9_.-]+-service|service[=:： ]+([A-Za-z0-9_.-]+)|服务[为是:]?\s*([A-Za-z0-9_.-]+))/i);
+      const keyword = text.match(/(?:关键词|包含|查找|内容|日志)[为是:]?\s*([A-Za-z0-9_.:\-/]+)|\b(timeout|exception|error|refused|oom|deadlock|panic)\b/i);
+      const level = text.match(/\b(ERROR|FATAL|WARN|INFO|DEBUG)\b/i);
+      const recent = text.match(/最近\s*(\d+)\s*(分钟|小时)/);
+      const range = text.match(/(\d{4}-\d{2}-\d{2}[ T]\d{2}:\d{2}(?::\d{2})?)\s*(?:到|至|-|~)\s*(\d{4}-\d{2}-\d{2}[ T]\d{2}:\d{2}(?::\d{2})?)/);
+      const todayRange = text.match(/今天\s*(\d{1,2}:\d{2})\s*(?:到|至|-|~)\s*(\d{1,2}:\d{2})/);
+
+      if (service) $('service').value = service[2] || service[3] || service[1];
+      if (keyword) $('value').value = keyword[1] || keyword[2] || '';
+      if (level) $('level').value = level[1].toUpperCase();
+
+      if (recent) {
+        const amount = Number(recent[1]);
+        const minutes = recent[2] === '小时' ? amount * 60 : amount;
+        $('from').value = toLocalInput(new Date(now.getTime() - minutes * 60000));
+        $('to').value = toLocalInput(now);
+      } else if (range) {
+        $('from').value = toInputFromText(range[1]);
+        $('to').value = toInputFromText(range[2]);
+      } else if (todayRange) {
+        const day = toLocalInput(now).slice(0, 10);
+        $('from').value = `${day}T${padTime(todayRange[1])}`;
+        $('to').value = `${day}T${padTime(todayRange[2])}`;
+      }
+
+      if (lower.includes('分析') || lower.includes('原因')) run('/api/analyze');
+      else run('/api/search');
+    }
+
+    function renderRows(records) {
+      $('rows').innerHTML = records.map((record) => {
+        const message = escapeHtml(record.message);
+        const lines = String(record.message || '').split('\n').length;
+        const summary = lines > 1 ? `完整内容 (${lines} 行)` : '完整内容';
+        return `<tr><td>${escapeHtml(record.ts)}</td><td>${escapeHtml(record.level)}</td><td>${escapeHtml(record.service)}</td><td><details ${lines <= 3 ? 'open' : ''}><summary>${summary}</summary><div class="message">${message}</div></details></td></tr>`;
+      }).join('');
+    }
+
+    function toLocalInput(date) {
+      const pad = (n) => String(n).padStart(2, '0');
+      return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}T${pad(date.getHours())}:${pad(date.getMinutes())}`;
+    }
+
+    function toInputFromText(value) {
+      return value.replace(' ', 'T').slice(0, 16);
+    }
+
+    function padTime(value) {
+      const [h, m] = value.split(':');
+      return `${String(h).padStart(2, '0')}:${m}`;
+    }
+
+    function normalizeInputTime(value) {
+      return value.replace('T', ' ') + ':00';
+    }
+
+    function escapeHtml(value) {
+      return String(value ?? '').replace(/[&<>"']/g, (char) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#039;' }[char]));
+    }
+  </script>
+</body>
+</html>

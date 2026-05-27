@@ -1,0 +1,12 @@
+demo-logs/
+node_modules/
+.npm-cache/
+.pack-test/
+.git/
+*.report.md
+*.report.json
+*.tgz
+reports/
+.remote-tools/
+scripts/
+service-data/

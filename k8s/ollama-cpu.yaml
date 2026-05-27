@@ -1,0 +1,46 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: ollama-cpu
+  namespace: log-inspector
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: ollama-cpu
+  template:
+    metadata:
+      labels:
+        app: ollama-cpu
+    spec:
+      containers:
+        - name: ollama
+          image: ollama/ollama:latest
+          imagePullPolicy: IfNotPresent
+          ports:
+            - containerPort: 11434
+          env:
+            - name: OLLAMA_NUM_PARALLEL
+              value: "1"
+            - name: OLLAMA_MAX_LOADED_MODELS
+              value: "1"
+          resources:
+            requests:
+              cpu: "1"
+              memory: 2Gi
+            limits:
+              cpu: "4"
+              memory: 6Gi
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: ollama-cpu
+  namespace: log-inspector
+spec:
+  selector:
+    app: ollama-cpu
+  ports:
+    - name: http
+      port: 11434
+      targetPort: 11434
