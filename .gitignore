@@ -1,0 +1,8 @@
+demo-logs/
+*.report.md
+*.report.json
+*.tgz
+node_modules/
+reports/
+.remote-tools/
+service-data/
